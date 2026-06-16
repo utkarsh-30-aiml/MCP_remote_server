@@ -1,0 +1,9 @@
+ uv run fastmcp inspect main.py  or  fastmcp inspect main.py
+
+ npx @modelcontextprotocol/inspector python main.py
+
+ fastmcp run main.py
+
+ uv run fastmcp install claude-desktop main.py --config-path "C:\Users\hp\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"
+
+ myenv\Scripts\fastmcp.exe install claude-desktop main.py --config-path "C:\Users\hp\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude"

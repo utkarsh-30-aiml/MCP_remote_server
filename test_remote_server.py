@@ -34,22 +34,6 @@ def random_numbers(min_val: int = 1, max_val: int = 100) -> int:
     """
     return random.randint(min_val, max_val)
 
-
-@mcp.resource("info://server")
-def server_info() -> str:
-    """Get information about the server."""
-
-    info = {
-        "name": "Simple Calculator Server",
-        "version": "1.0.0",
-        "description": "A basic MCP server with math tools",
-        "tools": ["add_numbers", "random_numbers"],
-        "author": "Utkarsh Patil"
-    }
-
-    return json.dumps(info, indent=2)
-
-
 @mcp.resource("info://server")
 def server_info() ->str:
     """Get information about the server"""

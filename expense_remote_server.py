@@ -10,7 +10,7 @@ mcp = FastMCP("Expense Tracker")
 pool = None
 
 
-async def get_pool():
+async def get_conn():
     global pool
 
     if pool is None:
@@ -36,7 +36,7 @@ async def add_expense(
 ):
     """Add a new expense"""
 
-    db = await get_pool()
+    db = await get_conn()
 
     async with db.acquire() as conn:
 
@@ -63,7 +63,7 @@ async def add_expense(
 @mcp.tool()
 async def list_expenses(start_date: str, end_date: str):
 
-    db = await get_pool()
+    db = await get_conn()
 
     async with db.acquire() as conn:
 
@@ -83,7 +83,10 @@ async def list_expenses(start_date: str, end_date: str):
             end_date
         )
 
-    return [dict(row) for row in rows]
+    return [
+        tuple(row.values())
+        for row in rows
+    ]
 
 
 @mcp.tool()
@@ -93,22 +96,27 @@ async def summarize_expenses(
     category: str = None
 ):
 
-    db = await get_pool()
+    db = await get_conn()
 
     async with db.acquire() as conn:
 
+        query = """
+            SELECT category,
+                   SUM(amount) AS total_amount
+            FROM expenses
+            WHERE expense_date BETWEEN $1 AND $2
+        """
+
         if category:
 
-            rows = await conn.fetch(
-                """
-                SELECT category,
-                       SUM(amount) AS total_amount
-                FROM expenses
-                WHERE expense_date BETWEEN $1 AND $2
-                  AND LOWER(category) = LOWER($3)
+            query += """
+                AND LOWER(category) = LOWER($3)
                 GROUP BY category
                 ORDER BY category
-                """,
+            """
+
+            rows = await conn.fetch(
+                query,
                 start_date,
                 end_date,
                 category
@@ -116,20 +124,21 @@ async def summarize_expenses(
 
         else:
 
-            rows = await conn.fetch(
-                """
-                SELECT category,
-                       SUM(amount) AS total_amount
-                FROM expenses
-                WHERE expense_date BETWEEN $1 AND $2
+            query += """
                 GROUP BY category
                 ORDER BY category
-                """,
+            """
+
+            rows = await conn.fetch(
+                query,
                 start_date,
                 end_date
             )
 
-    return [dict(row) for row in rows]
+    return [
+        tuple(row.values())
+        for row in rows
+    ]
 
 
 CATEGORIES_PATH = os.path.join(

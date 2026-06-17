@@ -1,4 +1,5 @@
 fastmcp
-psycopg2
+# psycopg2
 python-dotenv
 os
+psycopg2-binary

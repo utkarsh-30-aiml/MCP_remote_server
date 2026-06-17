@@ -1,23 +1,33 @@
 from fastmcp import FastMCP
-import psycopg2
+import asyncpg
 from dotenv import load_dotenv
 import os
+
 load_dotenv()
+
 mcp = FastMCP("Expense Tracker")
 
-def get_conn():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        sslmode="require"
-    )
+pool = None
+
+
+async def get_pool():
+    global pool
+
+    if pool is None:
+        pool = await asyncpg.create_pool(
+            host=os.getenv("DB_HOST"),
+            port=int(os.getenv("DB_PORT")),
+            database=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            ssl="require"
+        )
+
+    return pool
 
 
 @mcp.tool()
-def add_expense(
+async def add_expense(
     date: str,
     amount: float,
     category: str,
@@ -26,19 +36,23 @@ def add_expense(
 ):
     """Add a new expense"""
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO expenses
-                (expense_date, amount, category, subcategory, note)
-                VALUES (%s,%s,%s,%s,%s)
-                RETURNING id
-                """,
-                (date, amount, category, subcategory, note)
-            )
+    db = await get_pool()
 
-            expense_id = cur.fetchone()[0]
+    async with db.acquire() as conn:
+
+        expense_id = await conn.fetchval(
+            """
+            INSERT INTO expenses
+            (expense_date, amount, category, subcategory, note)
+            VALUES ($1,$2,$3,$4,$5)
+            RETURNING id
+            """,
+            date,
+            amount,
+            category,
+            subcategory,
+            note
+        )
 
     return {
         "status": "ok",
@@ -46,17 +60,14 @@ def add_expense(
     }
 
 
-
-
 @mcp.tool()
-def list_expenses(start_date: str, end_date: str):
+async def list_expenses(start_date: str, end_date: str):
 
-    conn = get_conn()
+    db = await get_pool()
 
-    try:
-        cur = conn.cursor()
+    async with db.acquire() as conn:
 
-        cur.execute(
+        rows = await conn.fetch(
             """
             SELECT id,
                    expense_date,
@@ -65,72 +76,75 @@ def list_expenses(start_date: str, end_date: str):
                    subcategory,
                    note
             FROM expenses
-            WHERE expense_date BETWEEN %s AND %s
+            WHERE expense_date BETWEEN $1 AND $2
             ORDER BY expense_date, id
             """,
-            (start_date, end_date)
+            start_date,
+            end_date
         )
 
-        rows = cur.fetchall()
-
-        cur.close()
-
-        return rows
-
-    finally:
-        conn.close()
+    return [dict(row) for row in rows]
 
 
 @mcp.tool()
-def summarize_expenses(start_date: str,
-                       end_date: str,
-                       category: str = None):
+async def summarize_expenses(
+    start_date: str,
+    end_date: str,
+    category: str = None
+):
 
-    conn = get_conn()
+    db = await get_pool()
 
-    try:
-        cur = conn.cursor()
-
-        query = """
-            SELECT category,
-                   SUM(amount) AS total_amount
-            FROM expenses
-            WHERE expense_date BETWEEN %s AND %s
-        """
-
-        params = [start_date, end_date]
+    async with db.acquire() as conn:
 
         if category:
-            query += " AND LOWER(category) = LOWER(%s)"
-            params.append(category)
 
-        query += """
-            GROUP BY category
-            ORDER BY category
-        """
+            rows = await conn.fetch(
+                """
+                SELECT category,
+                       SUM(amount) AS total_amount
+                FROM expenses
+                WHERE expense_date BETWEEN $1 AND $2
+                  AND LOWER(category) = LOWER($3)
+                GROUP BY category
+                ORDER BY category
+                """,
+                start_date,
+                end_date,
+                category
+            )
 
-        cur.execute(query, params)
+        else:
 
-        rows = cur.fetchall()
+            rows = await conn.fetch(
+                """
+                SELECT category,
+                       SUM(amount) AS total_amount
+                FROM expenses
+                WHERE expense_date BETWEEN $1 AND $2
+                GROUP BY category
+                ORDER BY category
+                """,
+                start_date,
+                end_date
+            )
 
-        cur.close()
+    return [dict(row) for row in rows]
 
-        return rows
-
-    finally:
-        conn.close()
 
 CATEGORIES_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "categories.json"
 )
 
+
 @mcp.resource("expense://categories")
 def categories():
     """Valid expense categories and subcategories."""
-    
+
     with open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
         return f.read()
-    
+
+
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=8000)

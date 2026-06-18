@@ -1,6 +1,7 @@
 from fastmcp import FastMCP
 import asyncpg
 from dotenv import load_dotenv
+from datetime import datetime, date
 import os
 
 load_dotenv()
@@ -26,6 +27,16 @@ async def get_conn():
     return pool
 
 
+def parse_date(date_str: str) -> date:
+    """Accepts ISO (YYYY-MM-DD) or D/M/Y style strings and returns a date object."""
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognized date format: {date_str!r}")
+
+
 @mcp.tool()
 async def add_expense(
     date: str,
@@ -35,6 +46,8 @@ async def add_expense(
     note: str = ""
 ):
     """Add a new expense"""
+
+    expense_date = parse_date(date)
 
     db = await get_conn()
 
@@ -47,7 +60,7 @@ async def add_expense(
             VALUES ($1,$2,$3,$4,$5)
             RETURNING id
             """,
-            date,
+            expense_date,
             amount,
             category,
             subcategory,
@@ -62,6 +75,9 @@ async def add_expense(
 
 @mcp.tool()
 async def list_expenses(start_date: str, end_date: str):
+
+    start = parse_date(start_date)
+    end = parse_date(end_date)
 
     db = await get_conn()
 
@@ -79,8 +95,8 @@ async def list_expenses(start_date: str, end_date: str):
             WHERE expense_date BETWEEN $1 AND $2
             ORDER BY expense_date, id
             """,
-            start_date,
-            end_date
+            start,
+            end
         )
 
     return [
@@ -95,6 +111,9 @@ async def summarize_expenses(
     end_date: str,
     category: str = None
 ):
+
+    start = parse_date(start_date)
+    end = parse_date(end_date)
 
     db = await get_conn()
 
@@ -117,8 +136,8 @@ async def summarize_expenses(
 
             rows = await conn.fetch(
                 query,
-                start_date,
-                end_date,
+                start,
+                end,
                 category
             )
 
@@ -131,8 +150,8 @@ async def summarize_expenses(
 
             rows = await conn.fetch(
                 query,
-                start_date,
-                end_date
+                start,
+                end
             )
 
     return [
